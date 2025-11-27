@@ -80,13 +80,16 @@ export function Sidebar() {
         )}>
           <div className="flex items-center gap-3">
             <img 
-              src="/flipstackk-logo.jpg" 
-              alt="FlipStackk Logo" 
+              src="/favicon.png" 
+              alt="Flipstackk Logo" 
               className={cn(
-                "object-contain transition-all duration-300",
-                isIconOnly ? "h-10 w-10" : "h-12 w-auto"
+                "object-contain rounded-lg transition-all duration-300",
+                isIconOnly ? "h-10 w-10" : "h-10 w-10"
               )}
             />
+            {showLabels && (
+              <span className="font-bold text-lg tracking-tight text-white">Flipstackk</span>
+            )}
           </div>
         </div>
 
