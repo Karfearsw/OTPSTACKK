@@ -1,0 +1,1265 @@
+import type { Express } from "express";
+import { createServer, type Server } from "http";
+import bcrypt from "bcryptjs";
+import { storage } from "./storage";
+import { 
+  insertLeadSchema, 
+  insertPropertySchema, 
+  insertContactSchema, 
+  insertContractSchema,
+  insertContractTemplateSchema,
+  insertContractDocumentSchema,
+  insertDocumentVersionSchema,
+  insertLoiSchema,
+  insertUserSchema,
+  insertTwoFactorAuthSchema,
+  insertBackupCodeSchema,
+  insertTeamSchema,
+  insertTeamMemberSchema,
+  insertTeamActivityLogSchema,
+  insertNotificationPreferenceSchema,
+  insertUserNotificationSchema,
+  insertUserGoalSchema,
+  insertOfferSchema,
+  insertTimesheetEntrySchema,
+  insertBuyerSchema,
+  insertBuyerCommunicationSchema,
+  insertDealAssignmentSchema
+} from "@shared/schema";
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // AUTH ENDPOINTS
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      
+      if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required" });
+      }
+
+      const user = await storage.getUserByEmail(email);
+      if (!user || !user.passwordHash) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      const isValid = await bcrypt.compare(password, user.passwordHash);
+      if (!isValid) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      if (!user.isActive) {
+        return res.status(403).json({ message: "Account is inactive" });
+      }
+
+      req.session.userId = user.id;
+      req.session.email = user.email;
+
+      const { passwordHash, ...userWithoutPassword } = user;
+      res.json({ user: userWithoutPassword });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/auth/signup", async (req, res) => {
+    try {
+      const { firstName, lastName, email, password, role = "employee", isSuperAdmin = false, isActive = true } = req.body;
+      
+      if (!firstName || !lastName || !email || !password) {
+        return res.status(400).json({ message: "All fields are required" });
+      }
+
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(409).json({ message: "Email already in use" });
+      }
+
+      const passwordHash = await bcrypt.hash(password, 12);
+
+      const newUser = await storage.createUser({
+        email,
+        passwordHash,
+        firstName,
+        lastName,
+        role,
+        isSuperAdmin,
+        isActive,
+      });
+
+      req.session.userId = newUser.id;
+      req.session.email = newUser.email;
+
+      const { passwordHash: _, ...userWithoutPassword } = newUser;
+      res.status(201).json({ user: userWithoutPassword });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/auth/logout", async (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ message: "Failed to logout" });
+      }
+      res.json({ message: "Logged out successfully" });
+    });
+  });
+
+  app.get("/api/auth/me", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const user = await storage.getUserById(req.session.userId);
+      if (!user) {
+        req.session.destroy(() => {});
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      const { passwordHash, ...userWithoutPassword } = user;
+      res.json(userWithoutPassword);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // LEADS ENDPOINTS
+  app.get("/api/leads", async (req, res) => {
+    try {
+      const allLeads = await storage.getLeads();
+      res.json(allLeads);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/leads/:id", async (req, res) => {
+    try {
+      const lead = await storage.getLeadById(parseInt(req.params.id));
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      res.json(lead);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/leads", async (req, res) => {
+    try {
+      const validated = insertLeadSchema.parse(req.body);
+      const lead = await storage.createLead(validated);
+      
+      if (req.session.userId) {
+        await storage.createGlobalActivity({
+          userId: req.session.userId,
+          action: "created_lead",
+          description: `Added new lead: ${lead.address}`,
+          metadata: JSON.stringify({ leadId: lead.id, address: lead.address }),
+        });
+      }
+      
+      res.status(201).json(lead);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/leads/:id", async (req, res) => {
+    try {
+      const partial = insertLeadSchema.partial().parse(req.body);
+      const lead = await storage.updateLead(parseInt(req.params.id), partial);
+      
+      if (req.session.userId) {
+        await storage.createGlobalActivity({
+          userId: req.session.userId,
+          action: "updated_lead",
+          description: `Updated lead: ${lead.address}`,
+          metadata: JSON.stringify({ leadId: lead.id, address: lead.address, status: lead.status }),
+        });
+      }
+      
+      res.json(lead);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/leads/:id", async (req, res) => {
+    try {
+      const lead = await storage.getLeadById(parseInt(req.params.id));
+      await storage.deleteLead(parseInt(req.params.id));
+      
+      if (req.session.userId && lead) {
+        await storage.createGlobalActivity({
+          userId: req.session.userId,
+          action: "deleted_lead",
+          description: `Deleted lead: ${lead.address}`,
+          metadata: JSON.stringify({ leadId: lead.id, address: lead.address }),
+        });
+      }
+      
+      res.json({ message: "Lead deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Convert lead to property (lead must be under_contract status)
+  app.post("/api/leads/:id/convert-to-property", async (req, res) => {
+    try {
+      const leadId = parseInt(req.params.id);
+      const lead = await storage.getLeadById(leadId);
+      
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      
+      // Normalize status check (case-insensitive, trim whitespace)
+      const normalizedStatus = lead.status?.toLowerCase().trim();
+      if (normalizedStatus !== "under_contract") {
+        return res.status(400).json({ 
+          message: "Lead must be 'under contract' status before converting to property" 
+        });
+      }
+      
+      // Check if property already exists from this lead (DB has unique index but check first for better UX)
+      const existingProperty = await storage.getPropertyBySourceLeadId(leadId);
+      if (existingProperty) {
+        return res.status(409).json({ 
+          message: "Property already exists for this lead",
+          propertyId: existingProperty.id
+        });
+      }
+      
+      // Create property from lead data - validate with schema
+      const propertyData = insertPropertySchema.parse({
+        address: lead.address,
+        city: lead.city,
+        state: lead.state,
+        zipCode: lead.zipCode,
+        price: lead.estimatedValue || null,
+        status: "under_contract",
+        sourceLeadId: lead.id,
+      });
+      
+      const property = await storage.createProperty(propertyData);
+      
+      // Log activity
+      if (req.session.userId) {
+        await storage.createGlobalActivity({
+          userId: req.session.userId,
+          action: "converted_lead_to_property",
+          description: `Converted lead to property: ${property.address}`,
+          metadata: JSON.stringify({ 
+            leadId: lead.id, 
+            propertyId: property.id, 
+            address: property.address 
+          }),
+        });
+      }
+      
+      res.status(201).json({ 
+        message: "Lead successfully converted to property",
+        property 
+      });
+    } catch (error: any) {
+      // Handle unique constraint violation
+      if (error.code === '23505') {
+        return res.status(409).json({ message: "Property already exists for this lead" });
+      }
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // PROPERTIES ENDPOINTS
+  app.get("/api/properties", async (req, res) => {
+    try {
+      const allProperties = await storage.getProperties();
+      res.json(allProperties);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/properties/:id", async (req, res) => {
+    try {
+      const property = await storage.getPropertyById(parseInt(req.params.id));
+      if (!property) return res.status(404).json({ message: "Property not found" });
+      res.json(property);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/properties", async (req, res) => {
+    try {
+      const validated = insertPropertySchema.parse(req.body);
+      const property = await storage.createProperty(validated);
+      
+      if (req.session.userId) {
+        await storage.createGlobalActivity({
+          userId: req.session.userId,
+          action: "created_property",
+          description: `Added new property: ${property.address}`,
+          metadata: JSON.stringify({ propertyId: property.id, address: property.address }),
+        });
+      }
+      
+      res.status(201).json(property);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/properties/:id", async (req, res) => {
+    try {
+      const partial = insertPropertySchema.partial().parse(req.body);
+      const property = await storage.updateProperty(parseInt(req.params.id), partial);
+      
+      if (req.session.userId) {
+        await storage.createGlobalActivity({
+          userId: req.session.userId,
+          action: "updated_property",
+          description: `Updated property: ${property.address}`,
+          metadata: JSON.stringify({ propertyId: property.id, address: property.address }),
+        });
+      }
+      
+      res.json(property);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/properties/:id", async (req, res) => {
+    try {
+      const property = await storage.getPropertyById(parseInt(req.params.id));
+      await storage.deleteProperty(parseInt(req.params.id));
+      
+      if (req.session.userId && property) {
+        await storage.createGlobalActivity({
+          userId: req.session.userId,
+          action: "deleted_property",
+          description: `Deleted property: ${property.address}`,
+          metadata: JSON.stringify({ propertyId: property.id, address: property.address }),
+        });
+      }
+      
+      res.json({ message: "Property deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // CONTRACTS ENDPOINTS
+  app.get("/api/contracts", async (req, res) => {
+    try {
+      const allContracts = await storage.getContracts();
+      res.json(allContracts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/contracts/:id", async (req, res) => {
+    try {
+      const contract = await storage.getContractById(parseInt(req.params.id));
+      if (!contract) return res.status(404).json({ message: "Contract not found" });
+      res.json(contract);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/contracts", async (req, res) => {
+    try {
+      const validated = insertContractSchema.parse(req.body);
+      const contract = await storage.createContract(validated);
+      res.status(201).json(contract);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/contracts/:id", async (req, res) => {
+    try {
+      const partial = insertContractSchema.partial().parse(req.body);
+      const contract = await storage.updateContract(parseInt(req.params.id), partial);
+      res.json(contract);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/contracts/:id", async (req, res) => {
+    try {
+      await storage.deleteContract(parseInt(req.params.id));
+      res.json({ message: "Contract deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // CONTACTS ENDPOINTS
+  app.get("/api/contacts", async (req, res) => {
+    try {
+      const allContacts = await storage.getContacts();
+      res.json(allContacts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/contacts", async (req, res) => {
+    try {
+      const validated = insertContactSchema.parse(req.body);
+      const contact = await storage.createContact(validated);
+      res.status(201).json(contact);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // CONTRACT TEMPLATES ENDPOINTS
+  app.get("/api/contract-templates", async (req, res) => {
+    try {
+      const templates = await storage.getContractTemplates();
+      res.json(templates);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/contract-templates/:id", async (req, res) => {
+    try {
+      const template = await storage.getContractTemplateById(parseInt(req.params.id));
+      if (!template) return res.status(404).json({ message: "Template not found" });
+      res.json(template);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/contract-templates", async (req, res) => {
+    try {
+      const validated = insertContractTemplateSchema.parse(req.body);
+      const template = await storage.createContractTemplate(validated);
+      res.status(201).json(template);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/contract-templates/:id", async (req, res) => {
+    try {
+      const partial = insertContractTemplateSchema.partial().parse(req.body);
+      const template = await storage.updateContractTemplate(parseInt(req.params.id), partial);
+      res.json(template);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/contract-templates/:id", async (req, res) => {
+    try {
+      await storage.deleteContractTemplate(parseInt(req.params.id));
+      res.json({ message: "Template deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // CONTRACT DOCUMENTS ENDPOINTS
+  app.get("/api/contract-documents", async (req, res) => {
+    try {
+      const documents = await storage.getContractDocuments();
+      res.json(documents);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/contract-documents/:id", async (req, res) => {
+    try {
+      const document = await storage.getContractDocumentById(parseInt(req.params.id));
+      if (!document) return res.status(404).json({ message: "Document not found" });
+      res.json(document);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/contract-documents", async (req, res) => {
+    try {
+      const validated = insertContractDocumentSchema.parse(req.body);
+      const document = await storage.createContractDocument(validated);
+      res.status(201).json(document);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/contract-documents/:id", async (req, res) => {
+    try {
+      const partial = insertContractDocumentSchema.partial().parse(req.body);
+      const document = await storage.updateContractDocument(parseInt(req.params.id), partial);
+      res.json(document);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/contract-documents/:id", async (req, res) => {
+    try {
+      await storage.deleteContractDocument(parseInt(req.params.id));
+      res.json({ message: "Document deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // DOCUMENT VERSIONS ENDPOINTS
+  app.get("/api/documents/:documentId/versions", async (req, res) => {
+    try {
+      const versions = await storage.getDocumentVersions(parseInt(req.params.documentId));
+      res.json(versions);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/documents/:documentId/versions", async (req, res) => {
+    try {
+      const validated = insertDocumentVersionSchema.parse({
+        ...req.body,
+        documentId: parseInt(req.params.documentId)
+      });
+      const version = await storage.createDocumentVersion(validated);
+      res.status(201).json(version);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // LOIS ENDPOINTS
+  app.get("/api/lois", async (req, res) => {
+    try {
+      const allLois = await storage.getLois();
+      res.json(allLois);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/lois/:id", async (req, res) => {
+    try {
+      const loi = await storage.getLoiById(parseInt(req.params.id));
+      if (!loi) return res.status(404).json({ message: "LOI not found" });
+      res.json(loi);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/lois", async (req, res) => {
+    try {
+      const validated = insertLoiSchema.parse(req.body);
+      const loi = await storage.createLoi(validated);
+      res.status(201).json(loi);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/lois/:id", async (req, res) => {
+    try {
+      const partial = insertLoiSchema.partial().parse(req.body);
+      const loi = await storage.updateLoi(parseInt(req.params.id), partial);
+      res.json(loi);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/lois/:id", async (req, res) => {
+    try {
+      await storage.deleteLoi(parseInt(req.params.id));
+      res.json({ message: "LOI deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // USERS ENDPOINTS
+  app.get("/api/users", async (req, res) => {
+    try {
+      const users = await storage.getUsers();
+      res.json(users);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/users/:id", async (req, res) => {
+    try {
+      const user = await storage.getUserById(parseInt(req.params.id));
+      if (!user) return res.status(404).json({ message: "User not found" });
+      res.json(user);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/users", async (req, res) => {
+    try {
+      const validated = insertUserSchema.parse(req.body);
+      const user = await storage.createUser(validated);
+      res.status(201).json(user);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Change password
+  app.patch("/api/users/:id/password", async (req, res) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    const userId = parseInt(req.params.id);
+    if (req.session.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    try {
+      const { currentPassword, newPassword } = req.body;
+
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ message: "Current and new password are required" });
+      }
+
+      if (newPassword.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters long" });
+      }
+
+      const user = await storage.getUserById(userId);
+      if (!user || !user.passwordHash) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!isValid) {
+        return res.status(401).json({ message: "Current password is incorrect" });
+      }
+
+      const newPasswordHash = await bcrypt.hash(newPassword, 12);
+      await storage.updateUser(userId, { passwordHash: newPasswordHash });
+
+      res.json({ message: "Password updated successfully" });
+    } catch (error) {
+      console.error("Error changing password:", error);
+      res.status(500).json({ message: "Failed to change password" });
+    }
+  });
+
+  app.patch("/api/users/:id", async (req, res) => {
+    try {
+      const partial = insertUserSchema.partial().parse(req.body);
+      const user = await storage.updateUser(parseInt(req.params.id), partial);
+      res.json(user);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // TWO FACTOR AUTH ENDPOINTS
+  app.get("/api/users/:userId/2fa", async (req, res) => {
+    try {
+      const auth = await storage.getTwoFactorAuthByUserId(parseInt(req.params.userId));
+      res.json(auth || { isEnabled: false });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/users/:userId/2fa", async (req, res) => {
+    try {
+      const validated = insertTwoFactorAuthSchema.parse({ ...req.body, userId: parseInt(req.params.userId) });
+      const auth = await storage.createTwoFactorAuth(validated);
+      res.status(201).json(auth);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/users/:userId/2fa", async (req, res) => {
+    try {
+      const partial = insertTwoFactorAuthSchema.partial().parse(req.body);
+      const auth = await storage.updateTwoFactorAuth(parseInt(req.params.userId), partial);
+      res.json(auth);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/users/:userId/2fa", async (req, res) => {
+    try {
+      await storage.deleteTwoFactorAuth(parseInt(req.params.userId));
+      res.json({ message: "2FA disabled" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // BACKUP CODES ENDPOINTS
+  app.get("/api/users/:userId/backup-codes", async (req, res) => {
+    try {
+      const codes = await storage.getBackupCodesByUserId(parseInt(req.params.userId));
+      res.json(codes);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/users/:userId/backup-codes", async (req, res) => {
+    try {
+      const validated = insertBackupCodeSchema.parse({ ...req.body, userId: parseInt(req.params.userId) });
+      const code = await storage.createBackupCode(validated);
+      res.status(201).json(code);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // GLOBAL ACTIVITY ENDPOINT
+  app.get("/api/activity", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+      const logs = await storage.getGlobalActivityLogs(limit);
+      
+      const logsWithUsers = await Promise.all(
+        logs.map(async (log) => {
+          const user = await storage.getUserById(log.userId);
+          return {
+            ...log,
+            user: user ? {
+              id: user.id,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              email: user.email,
+              profilePicture: user.profilePicture,
+            } : null,
+          };
+        })
+      );
+      
+      res.json(logsWithUsers);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // TEAMS ENDPOINTS
+  app.get("/api/teams", async (req, res) => {
+    try {
+      const teams = await storage.getTeams();
+      res.json(teams);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/teams/:id", async (req, res) => {
+    try {
+      const team = await storage.getTeamById(parseInt(req.params.id));
+      if (!team) return res.status(404).json({ message: "Team not found" });
+      res.json(team);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/teams", async (req, res) => {
+    try {
+      const validated = insertTeamSchema.parse(req.body);
+      const team = await storage.createTeam(validated);
+      res.status(201).json(team);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/teams/:id", async (req, res) => {
+    try {
+      const partial = insertTeamSchema.partial().parse(req.body);
+      const team = await storage.updateTeam(parseInt(req.params.id), partial);
+      res.json(team);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/teams/:id", async (req, res) => {
+    try {
+      await storage.deleteTeam(parseInt(req.params.id));
+      res.json({ message: "Team deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // TEAM MEMBERS ENDPOINTS
+  app.get("/api/teams/:teamId/members", async (req, res) => {
+    try {
+      const members = await storage.getTeamMembers(parseInt(req.params.teamId));
+      res.json(members);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/teams/:teamId/members", async (req, res) => {
+    try {
+      const validated = insertTeamMemberSchema.parse({ ...req.body, teamId: parseInt(req.params.teamId) });
+      const member = await storage.createTeamMember(validated);
+      res.status(201).json(member);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/team-members/:id", async (req, res) => {
+    try {
+      const partial = insertTeamMemberSchema.partial().parse(req.body);
+      const member = await storage.updateTeamMember(parseInt(req.params.id), partial);
+      res.json(member);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/team-members/:id", async (req, res) => {
+    try {
+      await storage.deleteTeamMember(parseInt(req.params.id));
+      res.json({ message: "Team member removed" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // TEAM ACTIVITY LOGS ENDPOINTS
+  app.get("/api/teams/:teamId/activity", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const logs = await storage.getTeamActivityLogs(parseInt(req.params.teamId), limit);
+      res.json(logs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/teams/:teamId/activity", async (req, res) => {
+    try {
+      const validated = insertTeamActivityLogSchema.parse({ ...req.body, teamId: parseInt(req.params.teamId) });
+      const log = await storage.createTeamActivityLog(validated);
+      res.status(201).json(log);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // NOTIFICATION PREFERENCES ENDPOINTS
+  app.get("/api/users/:userId/notification-preferences", async (req, res) => {
+    try {
+      const prefs = await storage.getNotificationPreferencesByUserId(parseInt(req.params.userId));
+      res.json(prefs || {});
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/users/:userId/notification-preferences", async (req, res) => {
+    try {
+      const validated = insertNotificationPreferenceSchema.parse({ ...req.body, userId: parseInt(req.params.userId) });
+      const prefs = await storage.createNotificationPreferences(validated);
+      res.status(201).json(prefs);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/users/:userId/notification-preferences", async (req, res) => {
+    try {
+      const partial = insertNotificationPreferenceSchema.partial().parse(req.body);
+      const prefs = await storage.updateNotificationPreferences(parseInt(req.params.userId), partial);
+      res.json(prefs);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // USER NOTIFICATIONS ENDPOINTS (actual notification messages)
+  app.get("/api/users/:userId/notifications", async (req, res) => {
+    try {
+      const notifications = await storage.getUserNotifications(parseInt(req.params.userId));
+      res.json(notifications);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/users/:userId/notifications", async (req, res) => {
+    try {
+      const validated = insertUserNotificationSchema.parse({ ...req.body, userId: parseInt(req.params.userId) });
+      const notification = await storage.createUserNotification(validated);
+      res.status(201).json(notification);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/notifications/:id/read", async (req, res) => {
+    try {
+      const notification = await storage.markNotificationAsRead(parseInt(req.params.id));
+      res.json(notification);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/notifications/:id", async (req, res) => {
+    try {
+      await storage.deleteUserNotification(parseInt(req.params.id));
+      res.json({ message: "Notification deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/users/:userId/notifications", async (req, res) => {
+    try {
+      await storage.deleteAllUserNotifications(parseInt(req.params.userId));
+      res.json({ message: "All notifications deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/users/:userId/notifications/read-all", async (req, res) => {
+    try {
+      await storage.markAllNotificationsAsRead(parseInt(req.params.userId));
+      res.json({ message: "All notifications marked as read" });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // USER GOALS ENDPOINTS
+  app.get("/api/users/:userId/goals", async (req, res) => {
+    try {
+      const goals = await storage.getUserGoals(parseInt(req.params.userId));
+      res.json(goals);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/goals/:id", async (req, res) => {
+    try {
+      const goal = await storage.getUserGoalById(parseInt(req.params.id));
+      if (!goal) return res.status(404).json({ message: "Goal not found" });
+      res.json(goal);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/users/:userId/goals", async (req, res) => {
+    try {
+      const validated = insertUserGoalSchema.parse({ ...req.body, userId: parseInt(req.params.userId) });
+      const goal = await storage.createUserGoal(validated);
+      res.status(201).json(goal);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/goals/:id", async (req, res) => {
+    try {
+      const partial = insertUserGoalSchema.partial().parse(req.body);
+      const goal = await storage.updateUserGoal(parseInt(req.params.id), partial);
+      res.json(goal);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/goals/:id", async (req, res) => {
+    try {
+      await storage.deleteUserGoal(parseInt(req.params.id));
+      res.json({ message: "Goal deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // OFFERS ENDPOINTS
+  app.get("/api/offers", async (req, res) => {
+    try {
+      const userId = req.query.userId ? parseInt(req.query.userId as string) : undefined;
+      const propertyId = req.query.propertyId ? parseInt(req.query.propertyId as string) : undefined;
+      
+      if (userId) {
+        const offers = await storage.getOffersByUserId(userId);
+        return res.json(offers);
+      }
+      if (propertyId) {
+        const offers = await storage.getOffersByPropertyId(propertyId);
+        return res.json(offers);
+      }
+      const offers = await storage.getOffers();
+      res.json(offers);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/offers/:id", async (req, res) => {
+    try {
+      const offer = await storage.getOfferById(parseInt(req.params.id));
+      if (!offer) return res.status(404).json({ message: "Offer not found" });
+      res.json(offer);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/offers", async (req, res) => {
+    try {
+      const validated = insertOfferSchema.parse(req.body);
+      const offer = await storage.createOffer(validated);
+      res.status(201).json(offer);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/offers/:id", async (req, res) => {
+    try {
+      const partial = insertOfferSchema.partial().parse(req.body);
+      const offer = await storage.updateOffer(parseInt(req.params.id), partial);
+      res.json(offer);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/offers/:id", async (req, res) => {
+    try {
+      await storage.deleteOffer(parseInt(req.params.id));
+      res.json({ message: "Offer deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // TIMESHEET ENTRIES ENDPOINTS
+  app.get("/api/users/:userId/timesheet", async (req, res) => {
+    try {
+      const entries = await storage.getTimesheetEntries(parseInt(req.params.userId));
+      res.json(entries);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/timesheet/:id", async (req, res) => {
+    try {
+      const entry = await storage.getTimesheetEntryById(parseInt(req.params.id));
+      if (!entry) return res.status(404).json({ message: "Entry not found" });
+      res.json(entry);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/users/:userId/timesheet", async (req, res) => {
+    try {
+      const validated = insertTimesheetEntrySchema.parse({ ...req.body, userId: parseInt(req.params.userId) });
+      const entry = await storage.createTimesheetEntry(validated);
+      res.status(201).json(entry);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/timesheet/:id", async (req, res) => {
+    try {
+      const partial = insertTimesheetEntrySchema.partial().parse(req.body);
+      const entry = await storage.updateTimesheetEntry(parseInt(req.params.id), partial);
+      res.json(entry);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/timesheet/:id", async (req, res) => {
+    try {
+      await storage.deleteTimesheetEntry(parseInt(req.params.id));
+      res.json({ message: "Entry deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // BUYERS ENDPOINTS
+  app.get("/api/buyers", async (req, res) => {
+    try {
+      const buyers = await storage.getBuyers();
+      res.json(buyers);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/buyers/:id", async (req, res) => {
+    try {
+      const buyer = await storage.getBuyerById(parseInt(req.params.id));
+      if (!buyer) return res.status(404).json({ message: "Buyer not found" });
+      res.json(buyer);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/buyers", async (req, res) => {
+    try {
+      const validated = insertBuyerSchema.parse(req.body);
+      const buyer = await storage.createBuyer(validated);
+      res.status(201).json(buyer);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/buyers/:id", async (req, res) => {
+    try {
+      const partial = insertBuyerSchema.partial().parse(req.body);
+      const buyer = await storage.updateBuyer(parseInt(req.params.id), partial);
+      res.json(buyer);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/buyers/:id", async (req, res) => {
+    try {
+      await storage.deleteBuyer(parseInt(req.params.id));
+      res.json({ message: "Buyer deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // BUYER COMMUNICATIONS ENDPOINTS
+  app.get("/api/buyers/:buyerId/communications", async (req, res) => {
+    try {
+      const comms = await storage.getBuyerCommunications(parseInt(req.params.buyerId));
+      res.json(comms);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/buyers/:buyerId/communications", async (req, res) => {
+    try {
+      const validated = insertBuyerCommunicationSchema.parse({
+        ...req.body,
+        buyerId: parseInt(req.params.buyerId)
+      });
+      const comm = await storage.createBuyerCommunication(validated);
+      res.status(201).json(comm);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/buyer-communications/:id", async (req, res) => {
+    try {
+      await storage.deleteBuyerCommunication(parseInt(req.params.id));
+      res.json({ message: "Communication deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // DEAL ASSIGNMENTS ENDPOINTS
+  app.get("/api/deal-assignments", async (req, res) => {
+    try {
+      const assignments = await storage.getDealAssignments();
+      res.json(assignments);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/deal-assignments/:id", async (req, res) => {
+    try {
+      const assignment = await storage.getDealAssignmentById(parseInt(req.params.id));
+      if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+      res.json(assignment);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/properties/:propertyId/assignments", async (req, res) => {
+    try {
+      const assignments = await storage.getDealAssignmentsByPropertyId(parseInt(req.params.propertyId));
+      res.json(assignments);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/buyers/:buyerId/assignments", async (req, res) => {
+    try {
+      const assignments = await storage.getDealAssignmentsByBuyerId(parseInt(req.params.buyerId));
+      res.json(assignments);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/deal-assignments", async (req, res) => {
+    try {
+      const validated = insertDealAssignmentSchema.parse(req.body);
+      const assignment = await storage.createDealAssignment(validated);
+      res.status(201).json(assignment);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/deal-assignments/:id", async (req, res) => {
+    try {
+      const partial = insertDealAssignmentSchema.partial().parse(req.body);
+      const assignment = await storage.updateDealAssignment(parseInt(req.params.id), partial);
+      res.json(assignment);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/deal-assignments/:id", async (req, res) => {
+    try {
+      await storage.deleteDealAssignment(parseInt(req.params.id));
+      res.json({ message: "Assignment deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  const httpServer = createServer(app);
+  return httpServer;
+}
