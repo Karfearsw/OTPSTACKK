@@ -33,12 +33,12 @@ export default function Login() {
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
             <img 
-              src="/flipstackk-logo.jpg" 
-              alt="FlipStackk Logo" 
-              className="h-24 w-auto object-contain"
+              src="/favicon.png" 
+              alt="Flipstackk Logo" 
+              className="h-20 w-20 object-contain rounded-xl"
             />
           </div>
-          <CardTitle className="text-3xl font-bold">FlipStackk 6.0</CardTitle>
+          <CardTitle className="text-3xl font-bold">Flipstackk 6.0</CardTitle>
           <CardDescription>
             Sign in to your account to continue
           </CardDescription>
