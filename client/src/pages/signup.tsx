@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,28 +10,21 @@ import { toast } from 'sonner';
 
 export default function Signup() {
   const [, setLocation] = useLocation();
+  const { signup } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [employeeCode, setEmployeeCode] = useState('');
+  const [teamCode, setTeamCode] = useState('');
+  const [roleCode, setRoleCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  const VALID_EMPLOYEE_CODE = "3911";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
     try {
-      // Validate employee code
-      if (employeeCode !== VALID_EMPLOYEE_CODE) {
-        toast.error('Invalid employee code. Contact your manager for access.');
-        setIsLoading(false);
-        return;
-      }
-
       // Validate passwords match
       if (password !== confirmPassword) {
         toast.error('Passwords do not match');
@@ -45,29 +39,9 @@ export default function Signup() {
         return;
       }
 
-      // Create new employee account
-      const res = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          firstName,
-          lastName,
-          email,
-          password,
-          role: 'employee',
-          isSuperAdmin: false,
-          isActive: true,
-        }),
-        credentials: 'include',
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.message || 'Signup failed');
-      }
-
-      toast.success('Account created! Redirecting to login...');
-      setTimeout(() => setLocation('/login'), 1500);
+      await signup({ firstName, lastName, email, password, roleCode, teamCode });
+      toast.success('Account created! Redirecting...');
+      setTimeout(() => setLocation('/'), 500);
     } catch (error: any) {
       toast.error(error.message || 'Signup failed');
     } finally {
@@ -81,12 +55,12 @@ export default function Signup() {
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
             <img 
-              src="/flipstackk-logo.jpg" 
-              alt="FlipStackk Logo" 
+              src="/luxe-logo.png" 
+              alt="Luxe RM Logo" 
               className="h-24 w-auto object-contain"
             />
           </div>
-          <CardTitle className="text-3xl font-bold">Join FlipStackk</CardTitle>
+          <CardTitle className="text-3xl font-bold">Join Luxe RM</CardTitle>
           <CardDescription>
             Create your employee account
           </CardDescription>
@@ -127,7 +101,7 @@ export default function Signup() {
               <Input
                 id="email"
                 type="email"
-                placeholder="your@email.com"
+                placeholder="name@oceanluxe.org"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -137,19 +111,36 @@ export default function Signup() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="employeeCode">Employee Code</Label>
+              <Label htmlFor="teamCode">Team Code</Label>
               <Input
-                id="employeeCode"
+                id="teamCode"
                 type="password"
-                placeholder="Enter your employee code"
-                value={employeeCode}
-                onChange={(e) => setEmployeeCode(e.target.value)}
+                placeholder="Enter your team join code"
+                value={teamCode}
+                onChange={(e) => setTeamCode(e.target.value)}
                 required
                 disabled={isLoading}
-                data-testid="input-signup-employee-code"
+                data-testid="input-signup-team-code"
               />
               <p className="text-xs text-muted-foreground">
-                Ask your manager for the employee access code
+                Ask your manager for the team join code
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="roleCode">Role Code</Label>
+              <Input
+                id="roleCode"
+                type="password"
+                placeholder="Enter your role access code"
+                value={roleCode}
+                onChange={(e) => setRoleCode(e.target.value)}
+                required
+                disabled={isLoading}
+                data-testid="input-signup-role-code"
+              />
+              <p className="text-xs text-muted-foreground">
+                Ask your manager for the role access code (admin / team leader / agent / VA)
               </p>
             </div>
 
@@ -183,7 +174,7 @@ export default function Signup() {
 
             <Button
               type="submit"
-              className="w-full bg-primary hover:bg-primary/90 text-white"
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
               disabled={isLoading}
               data-testid="button-signup"
             >
@@ -200,7 +191,7 @@ export default function Signup() {
           </div>
 
           <div className="mt-6 text-center text-xs text-muted-foreground">
-            <p>© 2025 FlipStackk. All rights reserved.</p>
+            <p>© 2025 Luxe RM. All rights reserved.</p>
           </div>
         </CardContent>
       </Card>
