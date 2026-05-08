@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,8 +11,9 @@ import { toast } from 'sonner';
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [employeeCode, setEmployeeCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, devBypass } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,18 +29,30 @@ export default function Login() {
     }
   };
 
+  const handleDevBypass = async () => {
+    setIsLoading(true);
+    try {
+      await devBypass(email, employeeCode);
+      toast.success('Dev bypass active');
+    } catch (error: any) {
+      toast.error(error.message || 'Dev bypass failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/20 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
             <img 
-              src="/favicon.png" 
-              alt="Flipstackk Logo" 
-              className="h-20 w-20 object-contain rounded-xl"
+              src="/luxe-logo.png" 
+              alt="Luxe RM Logo" 
+              className="h-24 w-auto object-contain"
             />
           </div>
-          <CardTitle className="text-3xl font-bold">Flipstackk 6.0</CardTitle>
+          <CardTitle className="text-3xl font-bold">Luxe RM</CardTitle>
           <CardDescription>
             Sign in to your account to continue
           </CardDescription>
@@ -73,7 +87,7 @@ export default function Login() {
             </div>
             <Button
               type="submit"
-              className="w-full bg-primary hover:bg-primary/90 text-white"
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
               disabled={isLoading}
               data-testid="button-login"
             >
@@ -81,14 +95,40 @@ export default function Login() {
               Sign In
             </Button>
           </form>
+
+          {import.meta.env.DEV && (
+            <div className="mt-4 space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="employeeCode">Employee Access Code</Label>
+                <Input
+                  id="employeeCode"
+                  type="password"
+                  placeholder="Enter employee code"
+                  value={employeeCode}
+                  onChange={(e) => setEmployeeCode(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                disabled={isLoading || !email || !employeeCode}
+                onClick={handleDevBypass}
+              >
+                {isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Dev Bypass Sign In
+              </Button>
+            </div>
+          )}
           
           <div className="mt-6 text-center text-sm text-muted-foreground">
-            <p>Real Estate Wholesaling CRM</p>
+            <p>Luxe Relationship Management</p>
             <p className="mt-2">Don't have an account?</p>
-            <a href="/signup" className="text-primary hover:underline font-medium">
+            <Link href="/signup" className="text-primary hover:underline font-medium">
               Sign up as an employee
-            </a>
-            <p className="mt-4 text-xs">© 2025 FlipStackk. All rights reserved.</p>
+            </Link>
+            <p className="mt-4 text-xs">© 2025 Luxe RM. All rights reserved.</p>
           </div>
         </CardContent>
       </Card>
