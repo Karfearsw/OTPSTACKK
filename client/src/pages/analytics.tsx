@@ -4,16 +4,26 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-const COLORS = ["#0a0a0a", "#dc2626", "#7f1d1d", "#fca5a5", "#fee2e2"];
+const COLORS = ["#0a0a0a", "#D4AF37", "#C9A227", "#E7D39C", "#F6EED1"];
 
 export default function Analytics() {
   // Fetch real data
-  const { data: leads = [], isLoading: leadsLoading } = useQuery<any[]>({
-    queryKey: ['/api/leads'],
+  const { data: leadsResp, isLoading: leadsLoading } = useQuery<any>({
+    queryKey: ['/api/leads?limit=500'],
   });
+  const leads = Array.isArray(leadsResp?.items) ? leadsResp.items : [];
 
   const { data: contracts = [], isLoading: contractsLoading } = useQuery<any[]>({
     queryKey: ['/api/contracts'],
+  });
+
+  const { data: sourceReport } = useQuery<any>({
+    queryKey: ["/api/reports/source"],
+    queryFn: async () => {
+      const res = await fetch("/api/reports/source", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
   });
 
   const isLoading = leadsLoading || contractsLoading;
@@ -76,7 +86,7 @@ export default function Analytics() {
     if (leads.length === 0) return [];
 
     const sources: { [key: string]: number } = {};
-    leads.forEach(lead => {
+    leads.forEach((lead: any) => {
       const source = lead.source || "Unknown";
       sources[source] = (sources[source] || 0) + 1;
     });
@@ -91,11 +101,11 @@ export default function Analytics() {
   // Conversion funnel data
   const conversionFunnelData = useMemo(() => {
     const statusCounts = {
-      "New Leads": leads.filter(l => l.status === 'new').length,
-      "Contacted": leads.filter(l => l.status === 'contacted').length,
-      "Qualified": leads.filter(l => l.status === 'qualified').length,
-      "Negotiating": contracts.filter(c => c.status === 'negotiating' || c.status === 'pending').length,
-      "Closed": contracts.filter(c => c.status === 'signed' || c.status === 'closed').length,
+      "New Leads": leads.filter((l: any) => l.status === 'new').length,
+      "Contacted": leads.filter((l: any) => l.status === 'contacted').length,
+      "Qualified": leads.filter((l: any) => l.status === 'qualified').length,
+      "Negotiating": contracts.filter((c: any) => c.status === 'negotiating' || c.status === 'pending').length,
+      "Closed": contracts.filter((c: any) => c.status === 'signed' || c.status === 'closed').length,
     };
 
     return Object.entries(statusCounts).map(([stage, count]) => ({
@@ -103,6 +113,18 @@ export default function Analytics() {
       count
     }));
   }, [leads, contracts]);
+
+  const sourcePerformanceData = useMemo(() => {
+    const items = (sourceReport as any)?.sources;
+    if (!Array.isArray(items)) return [];
+    return items.map((s: any) => ({
+      source: String(s.source || "Unknown"),
+      leads: Number(s.leads || 0),
+      opportunities: Number(s.opportunities || 0),
+      deals: Number(s.deals || 0),
+      revenue: Number(s.revenue || 0),
+    }));
+  }, [sourceReport]);
 
   if (isLoading) {
     return (
@@ -141,7 +163,9 @@ export default function Analytics() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-primary" data-testid="value-revenue">
-              ${(ytdMetrics.revenue / 1000).toFixed(1)}K
+              {ytdMetrics.revenue >= 1000
+                ? `$${(ytdMetrics.revenue / 1000).toFixed(1)}K`
+                : `$${ytdMetrics.revenue > 0 ? Math.round(ytdMetrics.revenue).toLocaleString() : "0"}`}
             </div>
             <p className="text-xs text-muted-foreground mt-1">From closed deals</p>
           </CardContent>
@@ -205,6 +229,33 @@ export default function Analytics() {
                     />
                     <Legend />
                     <Bar dataKey="deals" fill="hsl(var(--primary))" name="Deals" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Performance by Source</CardTitle>
+          </CardHeader>
+          <CardContent className="pl-2">
+            {sourcePerformanceData.length === 0 ? (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                <p>No attribution data available</p>
+              </div>
+            ) : (
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={sourcePerformanceData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="source" stroke="hsl(var(--muted-foreground))" />
+                    <YAxis stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="revenue" name="Revenue" fill="hsl(var(--primary))" />
+                    <Bar dataKey="deals" name="Deals" fill="hsl(var(--accent))" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
