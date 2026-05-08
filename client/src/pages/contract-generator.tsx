@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FileText, Download, Plus, Eye, Save, FileSignature, CheckCircle, Send, Clock, DollarSign, ChevronRight, ArrowRight } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -24,6 +25,18 @@ export default function ContractGenerator() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("list");
+  const deepLink = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab") || "";
+    const propertyIdRaw = params.get("propertyId") || "";
+    const propertyId = propertyIdRaw ? parseInt(propertyIdRaw, 10) : 0;
+    const validTab = tab && ["list", "create", "closing", "templates", "lois"].includes(tab) ? tab : "";
+    return { tab: validTab, propertyId: Number.isFinite(propertyId) ? propertyId : 0 };
+  }, []);
+
+  useEffect(() => {
+    if (deepLink.tab) setActiveTab(deepLink.tab);
+  }, [deepLink.tab]);
 
   // Fetch contracts
   const { data: contracts = [], isLoading: contractsLoading } = useQuery<any[]>({
@@ -47,10 +60,10 @@ export default function ContractGenerator() {
 
   return (
     <Layout>
-      <div className="p-8 space-y-6">
-        <div className="flex justify-between items-center">
+      <div className="p-4 md:p-8 space-y-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-4xl font-display font-bold text-foreground mb-2" data-testid="page-title">
+            <h1 className="text-2xl md:text-4xl font-display font-bold text-foreground mb-2" data-testid="page-title">
               Document Management
             </h1>
             <p className="text-muted-foreground">
@@ -60,25 +73,25 @@ export default function ContractGenerator() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 lg:w-auto">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 lg:w-auto">
             <TabsTrigger value="list" data-testid="tab-contracts">
-              <FileText className="w-4 h-4 mr-2" />
+              <FileText className="w-4 h-4 mr-1 sm:mr-2" />
               Contracts
             </TabsTrigger>
             <TabsTrigger value="create" data-testid="tab-create">
-              <Plus className="w-4 h-4 mr-2" />
+              <Plus className="w-4 h-4 mr-1 sm:mr-2" />
               Create New
             </TabsTrigger>
             <TabsTrigger value="closing" data-testid="tab-closing">
-              <CheckCircle className="w-4 h-4 mr-2" />
+              <CheckCircle className="w-4 h-4 mr-1 sm:mr-2" />
               Closing
             </TabsTrigger>
             <TabsTrigger value="templates" data-testid="tab-templates">
-              <FileSignature className="w-4 h-4 mr-2" />
+              <FileSignature className="w-4 h-4 mr-1 sm:mr-2" />
               Templates
             </TabsTrigger>
             <TabsTrigger value="lois" data-testid="tab-lois">
-              <FileText className="w-4 h-4 mr-2" />
+              <FileText className="w-4 h-4 mr-1 sm:mr-2" />
               LOIs
             </TabsTrigger>
           </TabsList>
@@ -95,7 +108,7 @@ export default function ContractGenerator() {
 
           {/* Create Contract Tab */}
           <TabsContent value="create" className="space-y-4">
-            <ContractCreator templates={templates} properties={properties} />
+            <ContractCreator templates={templates} properties={properties} initialPropertyId={deepLink.propertyId || undefined} />
           </TabsContent>
 
           {/* Templates Tab */}
@@ -114,9 +127,10 @@ export default function ContractGenerator() {
 }
 
 // Contract Creator Component
-function ContractCreator({ templates, properties }: { templates: any[], properties: any[] }) {
+function ContractCreator({ templates, properties, initialPropertyId }: { templates: any[], properties: any[], initialPropertyId?: number }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const appliedInitial = useRef(false);
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [formData, setFormData] = useState({
     title: "",
@@ -126,6 +140,23 @@ function ContractCreator({ templates, properties }: { templates: any[], properti
     amount: "",
     terms: "",
   });
+
+  useEffect(() => {
+    if (appliedInitial.current) return;
+    if (!initialPropertyId) return;
+    if (!properties.length) return;
+    const match = properties.find((p: any) => p?.id === initialPropertyId);
+    setFormData((prev) => {
+      const next: any = { ...prev };
+      if (!next.propertyId) next.propertyId = String(initialPropertyId);
+      if (!next.title && match?.address) next.title = `Purchase Agreement - ${match.address}`;
+      if (!next.amount && typeof match?.price !== "undefined" && match?.price !== null && String(match.price).trim() !== "") {
+        next.amount = String(match.price);
+      }
+      return next;
+    });
+    appliedInitial.current = true;
+  }, [initialPropertyId, properties]);
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -665,6 +696,11 @@ function LOICreator({ properties, onClose }: { properties: any[], onClose: () =>
 function ContractsList({ contracts, isLoading, onCreateNew }: { contracts: any[], isLoading: boolean, onCreateNew: () => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [sendOpen, setSendOpen] = useState(false);
+  const [sendContract, setSendContract] = useState<any>(null);
+  const [signerName, setSignerName] = useState("");
+  const [signerEmail, setSignerEmail] = useState("");
+  const [signerUrl, setSignerUrl] = useState("");
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: number, status: string }) => {
@@ -680,6 +716,32 @@ function ContractsList({ contracts, isLoading, onCreateNew }: { contracts: any[]
       toast({ title: "Contract status updated" });
       queryClient.invalidateQueries({ queryKey: ['/api/contract-documents'] });
     },
+  });
+
+  const sendEnvelopeMutation = useMutation({
+    mutationFn: async () => {
+      if (!sendContract?.id) throw new Error("Missing contract");
+      const response = await fetch(`/api/contract-documents/${sendContract.id}/envelopes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ signerName, signerEmail }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error((json as any).message || "Failed to send");
+      return json;
+    },
+    onSuccess: (data: any) => {
+      setSignerUrl(String(data?.signerUrl || ""));
+      const emailError = typeof data?.emailError === "string" ? String(data.emailError) : "";
+      if (emailError) {
+        toast({ title: "Link created", description: `Email failed: ${emailError}`, variant: "destructive" });
+      } else {
+        toast({ title: "Sent for signature" });
+      }
+      queryClient.invalidateQueries({ queryKey: ['/api/contract-documents'] });
+    },
+    onError: (e: any) => toast({ title: e?.message || "Failed to send", variant: "destructive" }),
   });
 
   const getNextStatus = (current: string): string | null => {
@@ -761,6 +823,20 @@ function ContractsList({ contracts, isLoading, onCreateNew }: { contracts: any[]
                     </div>
                   </div>
                   <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        setSendContract(contract);
+                        setSignerName("");
+                        setSignerEmail("");
+                        setSignerUrl("");
+                        setSendOpen(true);
+                      }}
+                    >
+                      <Send className="w-4 h-4 mr-2" />
+                      E-Sign
+                    </Button>
                     {nextStatus && (
                       <Button 
                         variant="outline" 
@@ -784,6 +860,54 @@ function ContractsList({ contracts, isLoading, onCreateNew }: { contracts: any[]
           </div>
         )}
       </CardContent>
+      <Dialog open={sendOpen} onOpenChange={setSendOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send for Signature</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">{sendContract?.title || ""}</div>
+            <div className="grid gap-2">
+              <Label>Signer name</Label>
+              <Input value={signerName} onChange={(e) => setSignerName(e.target.value)} placeholder="Seller name" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Signer email</Label>
+              <Input value={signerEmail} onChange={(e) => setSignerEmail(e.target.value)} placeholder="seller@email.com" />
+            </div>
+            {signerUrl ? (
+              <div className="space-y-2">
+                <Label>Signer link</Label>
+                <Input value={signerUrl} readOnly />
+                <Button
+                  variant="secondary"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(signerUrl);
+                      toast({ title: "Copied link" });
+                    } catch {
+                      toast({ title: "Copy failed", variant: "destructive" });
+                    }
+                  }}
+                >
+                  Copy link
+                </Button>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => sendEnvelopeMutation.mutate()}
+              disabled={!signerName.trim() || !signerEmail.trim() || sendEnvelopeMutation.isPending}
+            >
+              Send
+            </Button>
+            <Button variant="outline" onClick={() => setSendOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
