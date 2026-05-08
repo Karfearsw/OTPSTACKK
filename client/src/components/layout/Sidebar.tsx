@@ -14,7 +14,14 @@ import {
   ChevronRight,
   ChevronsLeft,
   Lightbulb,
-  UserCheck
+  UserCheck,
+  Phone,
+  Send,
+  Voicemail,
+  MapPin,
+  CheckSquare,
+  CalendarDays,
+  CalendarCheck2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -22,10 +29,20 @@ import { useSidebar } from "@/contexts/SidebarContext";
 import { useQuery } from "@tanstack/react-query";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-const navigation = [
+export const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
+  { name: "Today", href: "/today", icon: CalendarCheck2 },
+  { name: "Tasks", href: "/tasks", icon: CheckSquare },
+  { name: "Calendar", href: "/calendar", icon: CalendarDays },
   { name: "Leads Pipeline", href: "/leads", icon: Users },
-  { name: "Properties", href: "/properties", icon: Building2 },
+  { name: "Teams", href: "/teams", icon: Users },
+  { name: "Campaigns", href: "/campaigns", icon: Send },
+  { name: "RVM", href: "/rvm", icon: Voicemail },
+  { name: "Field Mode", href: "/field", icon: MapPin },
+  { name: "Opportunities", href: "/opportunities", icon: Building2 },
+  { name: "Phone", href: "/phone", icon: Phone },
+  { name: "Dialer Workspace", href: "/dialer/workspace", icon: Phone },
+  { name: "Contacts", href: "/contacts", icon: Users },
   { name: "Buyers", href: "/buyers", icon: UserCheck },
   { name: "Contracts", href: "/contracts", icon: FileText },
   { name: "Analytics", href: "/analytics", icon: PieChart },
@@ -80,23 +97,20 @@ export function Sidebar() {
         )}>
           <div className="flex items-center gap-3">
             <img 
-              src="/favicon.png" 
-              alt="Flipstackk Logo" 
+              src="/luxe-logo.png" 
+              alt="Luxe RM Logo" 
               className={cn(
-                "object-contain rounded-lg transition-all duration-300",
-                isIconOnly ? "h-10 w-10" : "h-10 w-10"
+                "object-contain transition-all duration-300",
+                isIconOnly ? "h-10 w-10" : "h-12 w-auto"
               )}
             />
-            {showLabels && (
-              <span className="font-bold text-lg tracking-tight text-white">Flipstackk</span>
-            )}
           </div>
         </div>
 
         {!isHidden && (
           <button
             onClick={cycleState}
-            className="absolute -right-3 top-20 z-50 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md hover:bg-primary/90 transition-colors"
+            className="absolute -right-3 top-20 z-40 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md hover:bg-primary/90 transition-colors"
             data-testid="button-toggle-sidebar"
           >
             {isExpanded && <ChevronLeft className="h-4 w-4" />}
@@ -205,7 +219,7 @@ export function Sidebar() {
           {showLabels && (
             <div 
               className="bg-sidebar-accent/50 rounded-lg p-3 mb-4 cursor-pointer hover:bg-sidebar-accent/70 transition-colors"
-              onClick={() => setLocation('/settings')}
+              onClick={() => setLocation('/settings?tab=goals')}
             >
               <p className="text-xs font-medium text-sidebar-foreground/60 uppercase tracking-wider mb-1">Current Goal</p>
               {activeGoal ? (
@@ -237,7 +251,7 @@ export function Sidebar() {
               <TooltipTrigger asChild>
                 <div 
                   className="flex justify-center mb-3 cursor-pointer"
-                  onClick={() => setLocation('/settings')}
+                  onClick={() => setLocation('/settings?tab=goals')}
                 >
                   <div className="relative h-10 w-10">
                     <svg className="h-10 w-10 -rotate-90" viewBox="0 0 36 36">
