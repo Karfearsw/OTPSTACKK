@@ -10,6 +10,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { EntityTasksWidget } from "@/components/tasks/EntityTasksWidget";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
@@ -31,8 +33,9 @@ import {
   Calendar,
   Send
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { apiRequest } from "@/lib/queryClient";
+import { CrmImportExportDialog } from "@/components/crm/CrmImportExportDialog";
 
 interface Buyer {
   id: number;
@@ -80,12 +83,239 @@ const propertyTypeOptions = [
   "Condos/Townhomes"
 ];
 
+type BuyerFormData = {
+  name: string;
+  company: string;
+  email: string;
+  phone: string;
+  preferredPropertyTypes: string[];
+  preferredAreas: string;
+  zipCodes: string;
+  minBudget: string;
+  maxBudget: string;
+  minBeds: string;
+  maxBeds: string;
+  dealsPerMonth: string;
+  proofOfFunds: boolean;
+  proofOfFundsNotes: string;
+  isVip: boolean;
+  notes: string;
+  tags: string;
+};
+
+function BuyerForm({
+  formData,
+  setFormData,
+  isEdit = false,
+  onSubmit,
+  isPending,
+}: {
+  formData: BuyerFormData;
+  setFormData: Dispatch<SetStateAction<BuyerFormData>>;
+  isEdit?: boolean;
+  onSubmit: () => void;
+  isPending: boolean;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <Label>Name *</Label>
+          <Input
+            value={formData.name}
+            onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
+            placeholder="John Smith"
+            data-testid="input-buyer-name"
+          />
+        </div>
+        <div>
+          <Label>Company</Label>
+          <Input
+            value={formData.company}
+            onChange={(e) => setFormData((p) => ({ ...p, company: e.target.value }))}
+            placeholder="ABC Investments LLC"
+            data-testid="input-buyer-company"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <Label>Email</Label>
+          <Input
+            type="email"
+            value={formData.email}
+            onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
+            placeholder="john@example.com"
+            data-testid="input-buyer-email"
+          />
+        </div>
+        <div>
+          <Label>Phone</Label>
+          <Input
+            value={formData.phone}
+            onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value }))}
+            placeholder="(555) 123-4567"
+            data-testid="input-buyer-phone"
+          />
+        </div>
+      </div>
+      <div>
+        <Label>Preferred Property Types</Label>
+        <div className="flex flex-wrap gap-2 mt-2">
+          {propertyTypeOptions.map((type) => (
+            <Badge
+              key={type}
+              variant={formData.preferredPropertyTypes.includes(type) ? "default" : "outline"}
+              className="cursor-pointer"
+              onClick={() => {
+                const types = formData.preferredPropertyTypes.includes(type)
+                  ? formData.preferredPropertyTypes.filter((t) => t !== type)
+                  : [...formData.preferredPropertyTypes, type];
+                setFormData((p) => ({ ...p, preferredPropertyTypes: types }));
+              }}
+            >
+              {type}
+            </Badge>
+          ))}
+        </div>
+      </div>
+      <div>
+        <Label>Preferred Areas (comma-separated)</Label>
+        <Input
+          value={formData.preferredAreas}
+          onChange={(e) => setFormData((p) => ({ ...p, preferredAreas: e.target.value }))}
+          placeholder="Orlando, Tampa, Miami"
+          data-testid="input-buyer-areas"
+        />
+      </div>
+      <div>
+        <Label>Zip Codes (comma-separated)</Label>
+        <Input
+          value={formData.zipCodes}
+          onChange={(e) => setFormData((p) => ({ ...p, zipCodes: e.target.value }))}
+          placeholder="32801, 33602"
+        />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <Label>Min Budget</Label>
+          <Input
+            type="number"
+            value={formData.minBudget}
+            onChange={(e) => setFormData((p) => ({ ...p, minBudget: e.target.value }))}
+            placeholder="50000"
+            data-testid="input-buyer-min-budget"
+          />
+        </div>
+        <div>
+          <Label>Max Budget</Label>
+          <Input
+            type="number"
+            value={formData.maxBudget}
+            onChange={(e) => setFormData((p) => ({ ...p, maxBudget: e.target.value }))}
+            placeholder="500000"
+            data-testid="input-buyer-max-budget"
+          />
+        </div>
+        <div>
+          <Label>Deals/Month</Label>
+          <Input
+            type="number"
+            value={formData.dealsPerMonth}
+            onChange={(e) => setFormData((p) => ({ ...p, dealsPerMonth: e.target.value }))}
+            placeholder="5"
+            data-testid="input-buyer-deals-per-month"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <Label>Min Beds</Label>
+          <Input
+            type="number"
+            value={formData.minBeds}
+            onChange={(e) => setFormData((p) => ({ ...p, minBeds: e.target.value }))}
+            placeholder="2"
+          />
+        </div>
+        <div>
+          <Label>Max Beds</Label>
+          <Input
+            type="number"
+            value={formData.maxBeds}
+            onChange={(e) => setFormData((p) => ({ ...p, maxBeds: e.target.value }))}
+            placeholder="5"
+          />
+        </div>
+      </div>
+      <div className={`p-3 rounded-lg border-2 ${formData.proofOfFunds ? "border-primary bg-primary/10" : "border-border"}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={formData.proofOfFunds}
+              onCheckedChange={(checked) => setFormData((p) => ({ ...p, proofOfFunds: checked }))}
+              data-testid="switch-proof-of-funds"
+            />
+            <div>
+              <Label className="font-semibold">Luxe Verified</Label>
+              <p className="text-xs text-muted-foreground">Mark when buyer has submitted proof of funds</p>
+            </div>
+          </div>
+          {formData.proofOfFunds && (
+            <Badge className="bg-primary text-primary-foreground hover:bg-primary/90 border-0">
+              <CheckCircle className="h-3 w-3 mr-1" /> Verified
+            </Badge>
+          )}
+        </div>
+        {formData.proofOfFunds && (
+          <div className="mt-3">
+            <Label className="text-xs">Verification Notes</Label>
+            <Input
+              value={formData.proofOfFundsNotes}
+              onChange={(e) => setFormData((p) => ({ ...p, proofOfFundsNotes: e.target.value }))}
+              placeholder="Bank statement received, credit line letter, etc."
+              className="mt-1"
+              data-testid="input-pof-notes"
+            />
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <Switch checked={formData.isVip} onCheckedChange={(checked) => setFormData((p) => ({ ...p, isVip: checked }))} data-testid="switch-vip" />
+        <Label>VIP Buyer</Label>
+      </div>
+      <div>
+        <Label>Tags (comma-separated)</Label>
+        <Input
+          value={formData.tags}
+          onChange={(e) => setFormData((p) => ({ ...p, tags: e.target.value }))}
+          placeholder="cash buyer, quick close, rehab"
+          data-testid="input-buyer-tags"
+        />
+      </div>
+      <div>
+        <Label>Notes</Label>
+        <Textarea
+          value={formData.notes}
+          onChange={(e) => setFormData((p) => ({ ...p, notes: e.target.value }))}
+          placeholder="Additional notes about this buyer..."
+          data-testid="textarea-buyer-notes"
+        />
+      </div>
+      <Button className="w-full" onClick={onSubmit} disabled={!formData.name || isPending} data-testid="button-save-buyer">
+        {isEdit ? "Update Buyer" : "Add Buyer"}
+      </Button>
+    </div>
+  );
+}
+
 export default function Buyers() {
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedBuyer, setSelectedBuyer] = useState<Buyer | null>(null);
+  const [isBuyerSheetOpen, setIsBuyerSheetOpen] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [commType, setCommType] = useState("call");
@@ -99,8 +329,11 @@ export default function Buyers() {
     phone: "",
     preferredPropertyTypes: [] as string[],
     preferredAreas: "",
+    zipCodes: "",
     minBudget: "",
     maxBudget: "",
+    minBeds: "",
+    maxBeds: "",
     dealsPerMonth: "",
     proofOfFunds: false,
     proofOfFundsNotes: "",
@@ -112,6 +345,23 @@ export default function Buyers() {
   const { data: buyers = [], isLoading } = useQuery<Buyer[]>({
     queryKey: ["/api/buyers"],
   });
+
+  const buyerIdFromQuery = useMemo(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const raw = params.get("buyerId") || params.get("highlight") || "";
+      const id = parseInt(String(raw || ""), 10);
+      return Number.isFinite(id) ? id : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!buyerIdFromQuery) return;
+    const found = buyers.find((b) => b.id === buyerIdFromQuery);
+    if (found) setSelectedBuyer(found);
+  }, [buyerIdFromQuery, buyers]);
 
   const { data: communications = [] } = useQuery<BuyerCommunication[]>({
     queryKey: [`/api/buyers/${selectedBuyer?.id}/communications`],
@@ -187,8 +437,11 @@ export default function Buyers() {
       phone: "",
       preferredPropertyTypes: [],
       preferredAreas: "",
+      zipCodes: "",
       minBudget: "",
       maxBudget: "",
+      minBeds: "",
+      maxBeds: "",
       dealsPerMonth: "",
       proofOfFunds: false,
       proofOfFundsNotes: "",
@@ -206,8 +459,11 @@ export default function Buyers() {
       phone: buyer.phone || "",
       preferredPropertyTypes: buyer.preferredPropertyTypes || [],
       preferredAreas: buyer.preferredAreas?.join(", ") || "",
+      zipCodes: (buyer as any).zipCodes?.join(", ") || "",
       minBudget: buyer.minBudget || "",
       maxBudget: buyer.maxBudget || "",
+      minBeds: (buyer as any).minBeds?.toString() || "",
+      maxBeds: (buyer as any).maxBeds?.toString() || "",
       dealsPerMonth: buyer.dealsPerMonth?.toString() || "",
       proofOfFunds: buyer.proofOfFunds || false,
       proofOfFundsNotes: buyer.proofOfFundsNotes || "",
@@ -227,8 +483,12 @@ export default function Buyers() {
       phone: formData.phone || null,
       preferredPropertyTypes: formData.preferredPropertyTypes.length > 0 ? formData.preferredPropertyTypes : null,
       preferredAreas: formData.preferredAreas ? formData.preferredAreas.split(",").map(s => s.trim()) : null,
+      zipCodes: formData.zipCodes ? formData.zipCodes.split(",").map(s => s.trim()).filter(Boolean) : null,
       minBudget: formData.minBudget || null,
       maxBudget: formData.maxBudget || null,
+      minBeds: formData.minBeds ? parseInt(formData.minBeds) : null,
+      maxBeds: formData.maxBeds ? parseInt(formData.maxBeds) : null,
+      propertyTypes: formData.preferredPropertyTypes.length > 0 ? formData.preferredPropertyTypes : null,
       dealsPerMonth: formData.dealsPerMonth ? parseInt(formData.dealsPerMonth) : null,
       proofOfFunds: formData.proofOfFunds,
       isVip: formData.isVip,
@@ -278,179 +538,6 @@ export default function Buyers() {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(parseFloat(value));
   };
 
-  const BuyerForm = ({ isEdit = false }: { isEdit?: boolean }) => (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Name *</Label>
-          <Input
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            placeholder="John Smith"
-            data-testid="input-buyer-name"
-          />
-        </div>
-        <div>
-          <Label>Company</Label>
-          <Input
-            value={formData.company}
-            onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-            placeholder="ABC Investments LLC"
-            data-testid="input-buyer-company"
-          />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Email</Label>
-          <Input
-            type="email"
-            value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            placeholder="john@example.com"
-            data-testid="input-buyer-email"
-          />
-        </div>
-        <div>
-          <Label>Phone</Label>
-          <Input
-            value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-            placeholder="(555) 123-4567"
-            data-testid="input-buyer-phone"
-          />
-        </div>
-      </div>
-      <div>
-        <Label>Preferred Property Types</Label>
-        <div className="flex flex-wrap gap-2 mt-2">
-          {propertyTypeOptions.map((type) => (
-            <Badge
-              key={type}
-              variant={formData.preferredPropertyTypes.includes(type) ? "default" : "outline"}
-              className="cursor-pointer"
-              onClick={() => {
-                const types = formData.preferredPropertyTypes.includes(type)
-                  ? formData.preferredPropertyTypes.filter(t => t !== type)
-                  : [...formData.preferredPropertyTypes, type];
-                setFormData({ ...formData, preferredPropertyTypes: types });
-              }}
-            >
-              {type}
-            </Badge>
-          ))}
-        </div>
-      </div>
-      <div>
-        <Label>Preferred Areas (comma-separated)</Label>
-        <Input
-          value={formData.preferredAreas}
-          onChange={(e) => setFormData({ ...formData, preferredAreas: e.target.value })}
-          placeholder="Orlando, Tampa, Miami"
-          data-testid="input-buyer-areas"
-        />
-      </div>
-      <div className="grid grid-cols-3 gap-4">
-        <div>
-          <Label>Min Budget</Label>
-          <Input
-            type="number"
-            value={formData.minBudget}
-            onChange={(e) => setFormData({ ...formData, minBudget: e.target.value })}
-            placeholder="50000"
-            data-testid="input-buyer-min-budget"
-          />
-        </div>
-        <div>
-          <Label>Max Budget</Label>
-          <Input
-            type="number"
-            value={formData.maxBudget}
-            onChange={(e) => setFormData({ ...formData, maxBudget: e.target.value })}
-            placeholder="500000"
-            data-testid="input-buyer-max-budget"
-          />
-        </div>
-        <div>
-          <Label>Deals/Month</Label>
-          <Input
-            type="number"
-            value={formData.dealsPerMonth}
-            onChange={(e) => setFormData({ ...formData, dealsPerMonth: e.target.value })}
-            placeholder="5"
-            data-testid="input-buyer-deals-per-month"
-          />
-        </div>
-      </div>
-      <div className={`p-3 rounded-lg border-2 ${formData.proofOfFunds ? 'border-red-500 bg-red-50 dark:bg-red-950/20' : 'border-border'}`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Switch
-              checked={formData.proofOfFunds}
-              onCheckedChange={(checked) => setFormData({ ...formData, proofOfFunds: checked })}
-              data-testid="switch-proof-of-funds"
-            />
-            <div>
-              <Label className="font-semibold">Flipstackk Verified</Label>
-              <p className="text-xs text-muted-foreground">Mark when buyer has submitted proof of funds</p>
-            </div>
-          </div>
-          {formData.proofOfFunds && (
-            <Badge className="bg-red-600 text-white hover:bg-red-700 border-0">
-              <CheckCircle className="h-3 w-3 mr-1" /> Verified
-            </Badge>
-          )}
-        </div>
-        {formData.proofOfFunds && (
-          <div className="mt-3">
-            <Label className="text-xs">Verification Notes</Label>
-            <Input
-              value={formData.proofOfFundsNotes}
-              onChange={(e) => setFormData({ ...formData, proofOfFundsNotes: e.target.value })}
-              placeholder="Bank statement received, credit line letter, etc."
-              className="mt-1"
-              data-testid="input-pof-notes"
-            />
-          </div>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
-        <Switch
-          checked={formData.isVip}
-          onCheckedChange={(checked) => setFormData({ ...formData, isVip: checked })}
-          data-testid="switch-vip"
-        />
-        <Label>VIP Buyer</Label>
-      </div>
-      <div>
-        <Label>Tags (comma-separated)</Label>
-        <Input
-          value={formData.tags}
-          onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-          placeholder="cash buyer, quick close, rehab"
-          data-testid="input-buyer-tags"
-        />
-      </div>
-      <div>
-        <Label>Notes</Label>
-        <Textarea
-          value={formData.notes}
-          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-          placeholder="Additional notes about this buyer..."
-          data-testid="textarea-buyer-notes"
-        />
-      </div>
-      <Button 
-        className="w-full" 
-        onClick={() => handleSubmit(isEdit)}
-        disabled={!formData.name || createBuyerMutation.isPending || updateBuyerMutation.isPending}
-        data-testid="button-save-buyer"
-      >
-        {isEdit ? "Update Buyer" : "Add Buyer"}
-      </Button>
-    </div>
-  );
-
   return (
     <Layout>
       <div className="flex flex-col gap-2 mb-4">
@@ -462,20 +549,23 @@ export default function Buyers() {
             </h1>
             <p className="text-muted-foreground">Manage your buyer relationships and track deals</p>
           </div>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button data-testid="button-add-buyer">
-                <Plus className="h-4 w-4 mr-2" /> Add Buyer
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Add New Buyer</DialogTitle>
-                <DialogDescription>Add a cash buyer to your network</DialogDescription>
-              </DialogHeader>
-              <BuyerForm />
-            </DialogContent>
-          </Dialog>
+          <div className="flex items-center gap-2">
+            <CrmImportExportDialog entityType="buyer" />
+            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+              <DialogTrigger asChild>
+                <Button data-testid="button-add-buyer">
+                  <Plus className="h-4 w-4 mr-2" /> Add Buyer
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Add New Buyer</DialogTitle>
+                  <DialogDescription>Add a cash buyer to your network</DialogDescription>
+                </DialogHeader>
+                <BuyerForm formData={formData} setFormData={setFormData} onSubmit={() => handleSubmit(false)} isPending={createBuyerMutation.isPending || updateBuyerMutation.isPending} />
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
       </div>
 
@@ -564,7 +654,10 @@ export default function Buyers() {
                         className={`p-4 rounded-lg border cursor-pointer transition-colors ${
                           selectedBuyer?.id === buyer.id ? "bg-primary/10 border-primary" : "hover:bg-muted"
                         }`}
-                        onClick={() => setSelectedBuyer(buyer)}
+                        onClick={() => {
+                          setSelectedBuyer(buyer);
+                          setIsBuyerSheetOpen(true);
+                        }}
                         data-testid={`buyer-card-${buyer.id}`}
                       >
                         <div className="flex items-start justify-between">
@@ -577,8 +670,8 @@ export default function Buyers() {
                                 </Badge>
                               )}
                               {buyer.proofOfFunds && (
-                                <Badge className="bg-red-600 text-white hover:bg-red-700 border-0">
-                                  <CheckCircle className="h-3 w-3 mr-1" /> Flipstackk Verified
+                                <Badge className="bg-primary text-primary-foreground hover:bg-primary/90 border-0">
+                                  <CheckCircle className="h-3 w-3 mr-1" /> Luxe Verified
                                 </Badge>
                               )}
                             </div>
@@ -662,6 +755,7 @@ export default function Buyers() {
                   <TabsList className="w-full">
                     <TabsTrigger value="info" className="flex-1">Info</TabsTrigger>
                     <TabsTrigger value="comms" className="flex-1">Communications</TabsTrigger>
+                    <TabsTrigger value="tasks" className="flex-1">Tasks</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="info" className="mt-4 space-y-4">
@@ -675,8 +769,8 @@ export default function Buyers() {
                       )}
                       {selectedBuyer.proofOfFunds && (
                         <div className="mt-2">
-                          <Badge className="bg-red-600 text-white hover:bg-red-700 border-0">
-                            <CheckCircle className="h-3 w-3 mr-1" /> Flipstackk Verified
+                          <Badge className="bg-primary text-primary-foreground hover:bg-primary/90 border-0">
+                            <CheckCircle className="h-3 w-3 mr-1" /> Luxe Verified
                           </Badge>
                           {selectedBuyer.proofOfFundsVerifiedAt && (
                             <p className="text-xs text-muted-foreground mt-1">
@@ -706,7 +800,7 @@ export default function Buyers() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 p-3 bg-muted/50 rounded-lg">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-muted/50 rounded-lg">
                       <div>
                         <p className="text-xs text-muted-foreground">Budget Range</p>
                         <p className="font-medium text-sm">
@@ -813,6 +907,10 @@ export default function Buyers() {
                       </ScrollArea>
                     </div>
                   </TabsContent>
+
+                  <TabsContent value="tasks" className="mt-4">
+                    <EntityTasksWidget entityType="buyer" entityId={selectedBuyer.id} />
+                  </TabsContent>
                 </Tabs>
               </CardContent>
             </Card>
@@ -828,13 +926,118 @@ export default function Buyers() {
         </div>
       </div>
 
+      <Sheet open={isBuyerSheetOpen} onOpenChange={setIsBuyerSheetOpen}>
+        <SheetContent className="sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle>{selectedBuyer ? selectedBuyer.name : "Buyer Profile"}</SheetTitle>
+          </SheetHeader>
+          {selectedBuyer ? (
+            <div className="mt-6 space-y-4">
+              <div className="flex items-center gap-2">
+                {selectedBuyer.isVip && (
+                  <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+                    <Star className="h-3 w-3 mr-1" /> VIP
+                  </Badge>
+                )}
+                {selectedBuyer.proofOfFunds && (
+                  <Badge className="bg-primary text-primary-foreground hover:bg-primary/90 border-0">
+                    <CheckCircle className="h-3 w-3 mr-1" /> Luxe Verified
+                  </Badge>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="text-xs text-muted-foreground">Phone</div>
+                  <div className="font-medium">{selectedBuyer.phone || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Email</div>
+                  <div className="font-medium">{selectedBuyer.email || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Budget</div>
+                  <div className="font-medium">
+                    {formatCurrency(selectedBuyer.minBudget)} - {formatCurrency(selectedBuyer.maxBudget)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Deals/Month</div>
+                  <div className="font-medium">{selectedBuyer.dealsPerMonth || "—"}</div>
+                </div>
+              </div>
+
+              {selectedBuyer.preferredPropertyTypes && selectedBuyer.preferredPropertyTypes.length > 0 && (
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Preferred Property Types</div>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedBuyer.preferredPropertyTypes.map((t, i) => (
+                      <Badge key={i} variant="outline" className="text-xs">
+                        {t}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedBuyer.preferredAreas && selectedBuyer.preferredAreas.length > 0 && (
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Preferred Areas</div>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedBuyer.preferredAreas.map((a, i) => (
+                      <Badge key={i} variant="secondary" className="text-xs">
+                        {a}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedBuyer.notes && (
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Notes</div>
+                  <div className="whitespace-pre-wrap text-sm border rounded-md p-3 bg-muted/30">{selectedBuyer.notes}</div>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setIsBuyerSheetOpen(false);
+                    handleEditClick(selectedBuyer);
+                  }}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={() => {
+                    if (confirm("Delete this buyer?")) {
+                      deleteBuyerMutation.mutate(selectedBuyer.id);
+                      setIsBuyerSheetOpen(false);
+                    }
+                  }}
+                >
+                  Delete
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-6 text-sm text-muted-foreground">Select a buyer to view details.</div>
+          )}
+        </SheetContent>
+      </Sheet>
+
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Buyer</DialogTitle>
             <DialogDescription>Update buyer information</DialogDescription>
           </DialogHeader>
-          <BuyerForm isEdit />
+          <BuyerForm formData={formData} setFormData={setFormData} isEdit onSubmit={() => handleSubmit(true)} isPending={createBuyerMutation.isPending || updateBuyerMutation.isPending} />
         </DialogContent>
       </Dialog>
     </Layout>
