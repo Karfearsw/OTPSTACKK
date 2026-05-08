@@ -1,21 +1,40 @@
 import fs from "node:fs";
 import { type Server } from "node:http";
 import path from "node:path";
+import "dotenv/config";
 
 import type { Express } from "express";
 import { nanoid } from "nanoid";
 import { createServer as createViteServer, createLogger } from "vite";
 
-import runApp from "./app";
+import runApp from "./app.js";
 
 import viteConfig from "../vite.config";
 
 const viteLogger = createLogger();
 
 export async function setupVite(app: Express, server: Server) {
+  const port = parseInt(process.env.PORT || "3000", 10);
+  const hmrClientPort = process.env.VITE_HMR_CLIENT_PORT
+    ? parseInt(String(process.env.VITE_HMR_CLIENT_PORT), 10)
+    : process.env.CI === "true"
+      ? 443
+      : undefined;
+  const hmrProtocol =
+    process.env.VITE_HMR_PROTOCOL ||
+    (process.env.CI === "true" ? "wss" : undefined);
+  const hmrHost = process.env.VITE_HMR_HOST || undefined;
+
   const serverOptions = {
     middlewareMode: true,
-    hmr: { server },
+    port,
+    host: "0.0.0.0",
+    hmr: {
+      server,
+      ...(hmrHost ? { host: hmrHost } : {}),
+      ...(hmrProtocol ? { protocol: hmrProtocol } : {}),
+      ...(hmrClientPort ? { clientPort: hmrClientPort } : {}),
+    },
     allowedHosts: true as const,
   };
 
