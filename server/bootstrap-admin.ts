@@ -1,11 +1,30 @@
 import bcrypt from "bcryptjs";
-import { storage } from "./storage";
+import { randomBytes } from "crypto";
+import { storage } from "./storage.js";
 
 async function bootstrapAdmin() {
   try {
     console.log("🔐 Bootstrapping admin account...");
 
-    const adminEmail = "bennyjelleh@icloud.com";
+    const adminEmail = process.env.BOOTSTRAP_ADMIN_EMAIL || process.env.ADMIN_USERNAME;
+    const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD;
+    const firstName = process.env.BOOTSTRAP_ADMIN_FIRST_NAME || "Admin";
+    const lastName = process.env.BOOTSTRAP_ADMIN_LAST_NAME || "User";
+    const companyName = process.env.BOOTSTRAP_ADMIN_COMPANY || "Luxe RM";
+
+    if (!adminEmail) {
+      throw new Error("Missing admin email. Set BOOTSTRAP_ADMIN_EMAIL or ADMIN_USERNAME.");
+    }
+    if (!password) {
+      throw new Error("Missing admin password. Set BOOTSTRAP_ADMIN_PASSWORD or ADMIN_PASSWORD.");
+    }
+
+    const orgDomain = String(process.env.ORG_EMAIL_DOMAIN || "oceanluxe.org").trim().toLowerCase();
+    const normalizedEmail = String(adminEmail || "").trim().toLowerCase();
+    if (!normalizedEmail.endsWith(`@${orgDomain}`)) {
+      throw new Error(`Admin email must end with @${orgDomain}`);
+    }
+
     const existingAdmin = await storage.getUserByEmail(adminEmail);
 
     if (existingAdmin) {
@@ -15,15 +34,14 @@ async function bootstrapAdmin() {
       return;
     }
 
-    const password = "FlipStackk2024!";
     const passwordHash = await bcrypt.hash(password, 12);
 
     const adminUser = await storage.createUser({
-      email: adminEmail,
+      email: normalizedEmail,
       passwordHash,
-      firstName: "Benji Stackk",
-      lastName: "Jelleh",
-      companyName: "FlipStackk",
+      firstName,
+      lastName,
+      companyName,
       role: "admin",
       isSuperAdmin: true,
       isActive: true,
@@ -34,16 +52,19 @@ async function bootstrapAdmin() {
     console.log(`   Email: ${adminUser.email}`);
     console.log(`   Name: ${adminUser.firstName} ${adminUser.lastName}`);
 
+    const joinCode = String(process.env.BOOTSTRAP_TEAM_JOIN_CODE || "").trim() || randomBytes(6).toString("hex");
     const team = await storage.createTeam({
-      name: "FlipStackk Team",
-      description: "Primary team for FlipStackk operations",
+      name: "Luxe RM Team",
+      description: "Primary team for Luxe RM operations",
       ownerId: adminUser.id,
+      joinCode,
       isActive: true,
     });
 
     console.log("✅ Admin team created!");
     console.log(`   Team ID: ${team.id}`);
     console.log(`   Team Name: ${team.name}`);
+    console.log(`   Team Join Code: ${String((team as any).joinCode || joinCode)}`);
 
     await storage.createTeamMember({
       teamId: team.id,
